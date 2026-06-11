@@ -14,7 +14,15 @@
 #define TICKER_USER_ID_ULL_LOW  MAYFLY_CALL_ID_2
 #define TICKER_USER_ID_THREAD   MAYFLY_CALL_ID_PROGRAM
 
-#define EVENT_PIPELINE_MAX 7
+/* Conductor: 7 -> 14. With two ACL connections (15ms active interval), a
+ * split-central link, continuous extended advertising and occasional
+ * scanning, colliding prepares plus their resume re-entries can transiently
+ * need more than 7 pipeline slots; ull_prepare_enqueue() then returns NULL
+ * and lll_prepare_resolve() hits LL_ASSERT(next) -> k_oops -> reboot
+ * (captured live on hardware at lll.c:894, ~2x/day under multi-host use).
+ * Each slot is one struct lll_event; the extra RAM is negligible.
+ */
+#define EVENT_PIPELINE_MAX 14
 
 #define ADV_INT_UNIT_US          625U
 #define SCAN_INT_UNIT_US         625U
