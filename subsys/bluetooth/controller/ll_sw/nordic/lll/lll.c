@@ -36,6 +36,8 @@
 
 #include "hal/debug.h"
 
+#include <zephyr/linker/section_tags.h>
+
 #if defined(CONFIG_BT_CTLR_ZLI)
 #define IRQ_CONNECT_FLAGS IRQ_ZERO_LATENCY
 #else
@@ -75,6 +77,46 @@ static inline struct lll_event *resume_enqueue(lll_is_abort_cb_t is_abort_cb,
 					       lll_abort_cb_t abort_cb, lll_prepare_cb_t resume_cb,
 					       void *param);
 static void isr_race(void *param);
+
+/* Conductor diagnostics: snapshot of the prepare pipeline taken right
+ * before asserting on a full pipeline; read out by the application after
+ * the reboot (lives in __noinit RAM, survives warm resets).
+ */
+#define LLL_DIAG_PIPELINE_MAGIC   0x11D1A65C
+#define LLL_DIAG_PIPELINE_ENT_MAX 16
+
+struct lll_diag_pipeline_snap {
+	uint32_t magic;
+	uint32_t count;
+	struct lll_diag_pipeline_ent {
+		uint32_t prepare_cb;
+		uint32_t param;
+		uint8_t is_resume;
+		uint8_t is_aborted;
+	} ent[LLL_DIAG_PIPELINE_ENT_MAX];
+};
+
+struct lll_diag_pipeline_snap lll_diag_pipeline_snap __noinit;
+
+static void diag_pipeline_snapshot(void)
+{
+	struct lll_event *iter;
+	uint8_t idx = UINT8_MAX;
+	uint32_t n = 0U;
+
+	iter = ull_prepare_dequeue_iter(&idx);
+	while (iter && (n < LLL_DIAG_PIPELINE_ENT_MAX)) {
+		lll_diag_pipeline_snap.ent[n].prepare_cb = (uint32_t)iter->prepare_cb;
+		lll_diag_pipeline_snap.ent[n].param = (uint32_t)iter->prepare_param.param;
+		lll_diag_pipeline_snap.ent[n].is_resume = iter->is_resume;
+		lll_diag_pipeline_snap.ent[n].is_aborted = iter->is_aborted;
+		n++;
+
+		iter = ull_prepare_dequeue_iter(&idx);
+	}
+	lll_diag_pipeline_snap.count = n;
+	lll_diag_pipeline_snap.magic = LLL_DIAG_PIPELINE_MAGIC;
+}
 
 #if !defined(CONFIG_BT_CTLR_LOW_LAT)
 static uint32_t preempt_ticker_start(struct lll_event *first,
@@ -890,6 +932,9 @@ int lll_prepare_resolve(lll_is_abort_cb_t is_abort_cb, lll_abort_cb_t abort_cb,
 		/* Store the next prepare for deferred call */
 		next = ull_prepare_enqueue(is_abort_cb, abort_cb, prepare_param,
 					   prepare_cb, is_resume);
+		if (!next) {
+			diag_pipeline_snapshot();
+		}
 		LL_ASSERT(next);
 
 #if !defined(CONFIG_BT_CTLR_LOW_LAT)
@@ -944,6 +989,9 @@ int lll_prepare_resolve(lll_is_abort_cb_t is_abort_cb, lll_abort_cb_t abort_cb,
 
 				next = resume_enqueue(event.curr.is_abort_cb, event.curr.abort_cb,
 						      resume_cb, curr_param);
+				if (!next) {
+					diag_pipeline_snapshot();
+				}
 				LL_ASSERT(next);
 			} else {
 				LL_ASSERT(err == -ECANCELED);
