@@ -14,15 +14,23 @@
 #define TICKER_USER_ID_ULL_LOW  MAYFLY_CALL_ID_2
 #define TICKER_USER_ID_THREAD   MAYFLY_CALL_ID_PROGRAM
 
-/* Conductor: 7 -> 14. With two ACL connections (15ms active interval), a
- * split-central link, continuous extended advertising and occasional
- * scanning, colliding prepares plus their resume re-entries can transiently
- * need more than 7 pipeline slots; ull_prepare_enqueue() then returns NULL
- * and lll_prepare_resolve() hits LL_ASSERT(next) -> k_oops -> reboot
- * (captured live on hardware at lll.c:894, ~2x/day under multi-host use).
- * Each slot is one struct lll_event; the extra RAM is negligible.
+/* Conductor: 7 -> 64. The split-central connection event (R as central to L)
+ * stalls on the radio under dense multi-host load (2+ host peripheral links +
+ * continuous ext adv + high-rate trackball HID + force-awake PMW3610 SPI).
+ * While stalled, its own re-scheduled prepares (~9, one per split conn
+ * interval) plus the host conn prepares (~5) fill the pipeline;
+ * ull_prepare_enqueue() returns NULL and lll_prepare_resolve() hits
+ * LL_ASSERT(next) -> k_oops -> reboot. Captured live: pipeline snapshot = 9x
+ * lll_central + 5x lll_peripheral prepares, curr = central conn; the upstream
+ * radio-IRQ fix (fe7675e209) and resume/overlap fixes did NOT stop it.
+ *
+ * 64 slots absorb a transient stall (~9-14 prepares observed) so the assert
+ * stops if the stall is BOUNDED. If it still asserts at 64, the stall is
+ * unbounded and the slot count only delays it — that itself is the diagnostic
+ * signal (then the radio stall, not the pipeline, must be addressed).
+ * Each slot is one struct lll_event (~tens of bytes); 64 is a few KB of RAM.
  */
-#define EVENT_PIPELINE_MAX 14
+#define EVENT_PIPELINE_MAX 64
 
 #define ADV_INT_UNIT_US          625U
 #define SCAN_INT_UNIT_US         625U
