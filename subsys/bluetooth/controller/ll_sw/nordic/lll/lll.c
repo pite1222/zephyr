@@ -88,12 +88,6 @@ static void isr_race(void *param);
 struct lll_diag_pipeline_snap {
 	uint32_t magic;
 	uint32_t count;
-	/* The currently executing radio event ("X") occupying the radio while
-	 * the pipeline filled up — identified by its callbacks' addresses.
-	 */
-	uint32_t curr_param;
-	uint32_t curr_is_abort_cb;
-	uint32_t curr_abort_cb;
 	struct lll_diag_pipeline_ent {
 		uint32_t prepare_cb;
 		uint32_t param;
@@ -121,9 +115,6 @@ static void diag_pipeline_snapshot(void)
 		iter = ull_prepare_dequeue_iter(&idx);
 	}
 	lll_diag_pipeline_snap.count = n;
-	lll_diag_pipeline_snap.curr_param = (uint32_t)event.curr.param;
-	lll_diag_pipeline_snap.curr_is_abort_cb = (uint32_t)event.curr.is_abort_cb;
-	lll_diag_pipeline_snap.curr_abort_cb = (uint32_t)event.curr.abort_cb;
 	lll_diag_pipeline_snap.magic = LLL_DIAG_PIPELINE_MAGIC;
 }
 
